@@ -1,2 +1,0 @@
-INSERT INTO DIPENDENTE VALUES
-(180, 'Arturo', 'Gervasi', 40, 'M', 4, 'DIVORZIATO', 'via delle incertezze 12', '090235467', 'XFXTDN80T29A107L');
