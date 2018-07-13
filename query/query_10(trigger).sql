@@ -1,24 +1,28 @@
+-- --------------------------------------------------------------------------------------------------------------------------------------
+-- 10. Definire un trigger che effettui un ordine di acquisto ad un fornitore quando la scorta
+-- 	di un prodotto è inferiore alla soglia.
+-- --------------------------------------------------------------------------------------------------------------------------------------
 delimiter |
 
-create trigger sotto_soglia
-before update on COLLOCAMENTO
-for each row
-begin
-declare N double;
-declare F int;
-if(NEW.quantita < NEW.soglia)
-then
-select negozio into N from IN_VENDITA inner join REPARTO on reparto = codice_reparto  where prodotto = NEW.prodotto;
+CREATE TRIGGER sotto_soglia
+BEFORE UPDATE ON COLLOCAMENTO
+FOR EACH ROW
+BEGIN
+DECLARE N DOUBLE;
+DECLARE F INT;
+IF(NEW.quantita < NEW.soglia)
+THEN
+SELECT negozio INTO N FROM IN_VENDITA INNER JOIN REPARTO ON reparto = codice_reparto  WHERE prodotto = NEW.prodotto;
 
-select FORNITORE.P_IVA into F 
-from (FORNITURA inner join FORNITORE on FORNITURA.fornitore = FORNITORE.P_IVA),
-	(MAGAZZINO inner join SCAFFALE on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino) inner join RIPIANO on scaffale = codice_scaffale
-where FORNITURA.negozio = MAGAZZINO.negozio and codice_ripiano = NEW.ripiano;
+SELECT FORNITORE.P_IVA INTO F 
+FROM (FORNITURA INNER JOIN FORNITORE ON FORNITURA.fornitore = FORNITORE.P_IVA),
+	(MAGAZZINO INNER JOIN SCAFFALE ON SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino) INNER JOIN RIPIANO ON scaffale = codice_scaffale
+WHERE FORNITURA.negozio = MAGAZZINO.negozio AND codice_ripiano = NEW.ripiano;
 
-insert into ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
-values(N, curdate(), NEW.prodotto, NEW.soglia, F);
+INSERT INTO ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
+VALUES(N, curdate(), NEW.prodotto, NEW.soglia, F);
 
-end if;
-end;
+END IF;
+END;
 |
 delimiter ;

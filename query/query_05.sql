@@ -1,3 +1,6 @@
-select codice_fiscale, nome, cognome, spesa
-from `CLIENTE FEDELE` inner join spesa_totale on codice_fiscale = cliente
-where spesa = (select max(spesa) from spesa_totale);
+-- ------------------------------------------------------------------------------------------------------------------
+-- 5. Visualizzare il cliente che ha speso di più in tutto il centro commerciale.
+-- ------------------------------------------------------------------------------------------------------------------
+SELECT codice_fiscale, nome, cognome, spesa
+FROM `CLIENTE FEDELE` INNER JOIN spesa_totale ON codice_fiscale = cliente
+WHERE spesa = (SELECT max(spesa) FROM spesa_totale);

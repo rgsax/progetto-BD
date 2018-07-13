@@ -1,3 +1,7 @@
-select *
-from NEGOZIO inner join fid_totali on P_IVA = negozio
-where num_fid < (select avg(num_fid) from fid_totali);
+-- --------------------------------------------------------------------------------------------------------------------------------------
+-- 9. Visualizzare i negozi che hanno un numero di clienti fedeli inferiore alla media degli
+-- 		altri negozi.
+-- --------------------------------------------------------------------------------------------------------------------------------------
+SELECT *
+FROM NEGOZIO INNER JOIN fid_totali ON P_IVA = negozio
+WHERE num_fid < (SELECT avg(num_fid) FROM fid_totali);

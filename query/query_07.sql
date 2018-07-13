@@ -1,3 +1,7 @@
-select dipendente
-from reparti_amministrati
-where num_reparti = (select max(num_reparti) from reparti_amministrati);
+-- ------------------------------------------------------------------------------------------------------------------
+-- 7. Visualizzare il dipendente che è stato responsabile del maggior numero di reparti nel
+-- 		centro commerciale.
+-- ------------------------------------------------------------------------------------------------------------------
+SELECT dipendente
+FROM reparti_amministrati
+WHERE num_reparti = (SELECT max(num_reparti) FROM reparti_amministrati);
