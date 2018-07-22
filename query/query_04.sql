@@ -1,6 +1,6 @@
 -- ------------------------------------------------------------------------------------------------------------------
 -- Visualizzare, per ogni negozio e per ogni mese, quanti e quali prodotti sono stati
---	richiesti ai diversi fornitori.
+-- richiesti ai diversi fornitori.
 -- ------------------------------------------------------------------------------------------------------------------
 SELECT month(data_ordine), year(data_ordine), negozio, prodotto, quantita, fornitore
 FROM ORDINE
