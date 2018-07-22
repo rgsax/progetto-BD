@@ -40,7 +40,7 @@ CREATE TABLE `ACQUISTI` (
 
 LOCK TABLES `ACQUISTI` WRITE;
 /*!40000 ALTER TABLE `ACQUISTI` DISABLE KEYS */;
-INSERT INTO `ACQUISTI` VALUES (4,192,5),(5,43,5),(14,182,1),(14,183,1);
+INSERT INTO `ACQUISTI` VALUES (4,192,5),(5,6,10),(5,43,5),(14,182,1),(14,183,1),(15,6,1);
 /*!40000 ALTER TABLE `ACQUISTI` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -58,6 +58,11 @@ for each row
 begin
 declare q_magazzino int default(0);
 declare c_negozio int;
+declare c_reparto int;
+declare c_ripiano int;
+declare q_esposta int default(0);
+declare quantita_rimanente int;
+set quantita_rimanente = NEW.quantita;
 
 if(NEW.prodotto not in (select prodotto
 						from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = REPARTO.codice_reparto), SCONTRINO
@@ -66,15 +71,38 @@ if(NEW.prodotto not in (select prodotto
 end if;
 
 select negozio into c_negozio from SCONTRINO where codice_scontrino = NEW.scontrino;
+select codice_reparto into c_reparto from SCONTRINO inner join REPARTO on SCONTRINO.negozio = REPARTO.negozio where codice_scontrino = NEW.scontrino;
+select codice_ripiano into c_ripiano from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
+	where COLLOCAMENTO.prodotto = NEW.prodotto and negozio = c_negozio;
+	
 
-select sum(quantita) into q_magazzino from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scafale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
+select sum(quantita) into q_magazzino from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
 	where COLLOCAMENTO.prodotto = NEW.prodotto and negozio = c_negozio;
 
-if(NEW.quantita > q_magazzino + (select quantita_esposta 
+select quantita_esposta into q_esposta
 					from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = codice_reparto) inner join SCONTRINO on REPARTO.negozio = SCONTRINO.negozio
-                    where codice_scontrino = NEW.scontrino and NEW.prodotto = IN_VENDITA.prodotto)) then
+                    where codice_scontrino = NEW.scontrino and NEW.prodotto = IN_VENDITA.prodotto;
+
+if(NEW.quantita > q_magazzino + q_esposta) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'quantita\' richiesta non disponibile';
 end if;
+
+if(quantita_rimanente > q_esposta) then
+	set quantita_rimanente = quantita_rimanente - q_esposta;
+    set q_esposta = 0;
+    set q_magazzino = q_magazzino - quantita_rimanente;
+else
+	set q_esposta = q_esposta - quantita_rimanente;
+end if;
+
+update IN_VENDITA
+set quantita_esposta = q_esposta
+where prodotto = NEW.prodotto and reparto = c_reparto;
+
+update COLLOCAMENTO
+set quantita = q_magazzino
+where prodotto = NEW.prodotto and ripiano = c_ripiano;
+
 end */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
@@ -290,7 +318,7 @@ CREATE TABLE `COLLOCAMENTO` (
 
 LOCK TABLES `COLLOCAMENTO` WRITE;
 /*!40000 ALTER TABLE `COLLOCAMENTO` DISABLE KEYS */;
-INSERT INTO `COLLOCAMENTO` VALUES (6,1,3,5),(43,1,10,5),(182,2,30,5),(183,2,15,2),(192,1,10,5);
+INSERT INTO `COLLOCAMENTO` VALUES (6,1,0,5),(43,1,10,5),(182,2,30,5),(183,2,15,2),(192,1,10,5);
 /*!40000 ALTER TABLE `COLLOCAMENTO` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -305,9 +333,24 @@ DELIMITER ;;
 /*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 trigger insert_check_collocamento
 before insert on COLLOCAMENTO
 for each row 
+begin
+declare c_magazzino int;
+declare c_ripiano int default(null);
 if(NEW.quantita < NEW.soglia) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'quantita\' inferiore alla soglia specificata';
-end if */;;
+end if;
+select codice_magazzino into c_magazzino
+from RIPIANO inner join SCAFFALE on scaffale = codice_scaffale
+where NEW.ripiano = codice_ripiano;
+
+select ripiano into c_ripiano
+from (COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale
+where COLLOCAMENTO.prodotto = NEW.prodotto and codice_magazzino = c_magazzino;
+
+if(c_ripiano is not null and NEW.ripiano != c_ripiano) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'prodotto gia\' collocato in un altro scaffale';
+end if;
+end */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -326,10 +369,9 @@ DELIMITER ;;
 before update on COLLOCAMENTO
 for each row
 begin
-declare N double;
+declare N int;
 declare F int;
-if(NEW.quantita < NEW.soglia)
-then
+if(NEW.quantita < NEW.soglia) then
 select negozio into N from IN_VENDITA inner join REPARTO on reparto = codice_reparto  where prodotto = NEW.prodotto;
 
 select FORNITORE.P_IVA into F 
@@ -337,8 +379,10 @@ from (FORNITURA inner join FORNITORE on FORNITURA.fornitore = FORNITORE.P_IVA),
 	(MAGAZZINO inner join SCAFFALE on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino) inner join RIPIANO on scaffale = codice_scaffale
 where FORNITURA.negozio = MAGAZZINO.negozio and codice_ripiano = NEW.ripiano;
 
-insert into ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
-values(N, curdate(), NEW.prodotto, NEW.soglia, F);
+if(not exists(select * from ORDINE where negozio = N and ORDINE.prodotto = NEW.prodotto and datediff(data_ordine, curdate()) < 7)) then
+	insert into ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
+	values(N, curdate(), NEW.prodotto, NEW.soglia, F);
+end if;
 
 end if;
 end */;;
@@ -427,7 +471,7 @@ CREATE TABLE `FIDELITY CARD` (
   KEY `fk_FIDELITY CARD_PERSONA_idx` (`cliente`),
   CONSTRAINT `fk_FIDELITY CARD_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fk_FIDELITY CARD_PERSONA` FOREIGN KEY (`cliente`) REFERENCES `CLIENTE FEDELE` (`codice_fiscale`) ON DELETE NO ACTION ON UPDATE NO ACTION
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -600,7 +644,7 @@ CREATE TABLE `IN_VENDITA` (
 
 LOCK TABLES `IN_VENDITA` WRITE;
 /*!40000 ALTER TABLE `IN_VENDITA` DISABLE KEYS */;
-INSERT INTO `IN_VENDITA` VALUES (6,5344,3.5,30),(43,5344,10,5),(182,1234,10,30),(183,1234,10,20),(192,5344,2,20);
+INSERT INTO `IN_VENDITA` VALUES (6,5344,3.5,0),(43,5344,10,5),(182,1234,10,30),(183,1234,10,20),(192,5344,2,20);
 /*!40000 ALTER TABLE `IN_VENDITA` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -914,7 +958,7 @@ CREATE TABLE `ORDINE` (
   CONSTRAINT `fk_ORDINE_FORNITORE1` FOREIGN KEY (`fornitore`) REFERENCES `FORNITORE` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fk_ORDINE_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION,
   CONSTRAINT `fk_ORDINE_PRODOTTO1` FOREIGN KEY (`prodotto`) REFERENCES `PRODOTTO` (`codice_a_barre`) ON DELETE NO ACTION ON UPDATE NO ACTION
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -923,7 +967,7 @@ CREATE TABLE `ORDINE` (
 
 LOCK TABLES `ORDINE` WRITE;
 /*!40000 ALTER TABLE `ORDINE` DISABLE KEYS */;
-INSERT INTO `ORDINE` VALUES (1,123456,'2018-07-07',6,5,123456);
+INSERT INTO `ORDINE` VALUES (8,123456,'2018-07-22',6,5,123456);
 /*!40000 ALTER TABLE `ORDINE` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1177,7 +1221,7 @@ CREATE TABLE `RIPIANO` (
   PRIMARY KEY (`codice_ripiano`),
   KEY `fk_RIPIANO_SCAFFALE1_idx` (`scaffale`),
   CONSTRAINT `fk_RIPIANO_SCAFFALE1` FOREIGN KEY (`scaffale`) REFERENCES `SCAFFALE` (`codice_scaffale`) ON DELETE NO ACTION ON UPDATE NO ACTION
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1186,7 +1230,7 @@ CREATE TABLE `RIPIANO` (
 
 LOCK TABLES `RIPIANO` WRITE;
 /*!40000 ALTER TABLE `RIPIANO` DISABLE KEYS */;
-INSERT INTO `RIPIANO` VALUES (1,1),(2,2),(3,3);
+INSERT INTO `RIPIANO` VALUES (1,1),(4,1),(2,2),(3,3);
 /*!40000 ALTER TABLE `RIPIANO` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -1278,7 +1322,7 @@ CREATE TABLE `SCONTRINO` (
   KEY `fk_SCONTRINO_NEGOZIO1_idx` (`negozio`),
   KEY `fk_SCONTRINO_FIDELITY CARD1_idx` (`fidelity_card`),
   CONSTRAINT `fk_SCONTRINO_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION
-) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -1287,7 +1331,7 @@ CREATE TABLE `SCONTRINO` (
 
 LOCK TABLES `SCONTRINO` WRITE;
 /*!40000 ALTER TABLE `SCONTRINO` DISABLE KEYS */;
-INSERT INTO `SCONTRINO` VALUES (4,'2018-07-06',123456,NULL),(5,'2018-07-06',123456,1),(14,'2018-07-07',123457,4);
+INSERT INTO `SCONTRINO` VALUES (4,'2018-07-06',123456,NULL),(5,'2018-07-06',123456,1),(14,'2018-07-07',123457,4),(15,'2018-07-22',123456,NULL);
 /*!40000 ALTER TABLE `SCONTRINO` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -1497,13 +1541,13 @@ DELIMITER ;;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;;
 /*!50003 SET @saved_time_zone      = @@time_zone */ ;;
 /*!50003 SET time_zone             = 'SYSTEM' */ ;;
-/*!50106 CREATE*/ /*!50117 DEFINER=`root`@`localhost`*/ /*!50106 EVENT `disabilita_schede` ON SCHEDULE EVERY 1 DAY STARTS '2018-07-07 16:41:32' ON COMPLETION NOT PRESERVE ENABLE DO begin
-delete from `FIDELITY CARD`
-where datediff(curdate(), data_emissione) >= 2 * 365 and not exists (
-	select *
-	from SCONTRINO
-	having fidelity_card = codice_carta and datediff(curdate(), SCONTRINO.data_emissione) < 2 * 365);
-end */ ;;
+/*!50106 CREATE*/ /*!50117 DEFINER=`root`@`localhost`*/ /*!50106 EVENT `disabilita_schede` ON SCHEDULE EVERY 1 DAY STARTS '2018-01-01 00:00:00' ON COMPLETION NOT PRESERVE ENABLE DO BEGIN
+DELETE FROM `FIDELITY CARD`
+WHERE datediff(curdate(), data_emissione) >= 2 * 365 AND NOT EXISTS (
+	SELECT *
+	FROM SCONTRINO
+	HAVING fidelity_card = codice_carta AND datediff(curdate(), SCONTRINO.data_emissione) < 2 * 365);
+END */ ;;
 /*!50003 SET time_zone             = @saved_time_zone */ ;;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;;
@@ -1669,4 +1713,4 @@ DELIMITER ;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2018-07-22 14:29:43
+-- Dump completed on 2018-07-22 20:14:17
