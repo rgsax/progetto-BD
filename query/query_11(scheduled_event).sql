@@ -3,10 +3,11 @@
 -- 	fedeltà dei clienti che non hanno fatto acquisti negli ultimi 2 anni presso il negozio
 -- 	che ha rilasciato la tessera.
 -- --------------------------------------------------------------------------------------------------------------------------------------
+drop event disabilita_schede;
 delimiter |
 CREATE EVENT disabilita_schede 
 ON SCHEDULE EVERY 1 DAY
-STARTS “2018-06-01 00:00”
+STARTS str_to_date("2018,1,1 12,0", "%Y,%m,%d %h,%i")
 DO
 BEGIN
 DELETE FROM `FIDELITY CARD`

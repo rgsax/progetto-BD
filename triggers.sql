@@ -75,9 +75,24 @@ end;
 create trigger insert_check_collocamento
 before insert on COLLOCAMENTO
 for each row 
+begin
+declare c_magazzino int;
+declare c_ripiano int default(null);
 if(NEW.quantita < NEW.soglia) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'quantita\' inferiore alla soglia specificata';
 end if;
+select codice_magazzino into c_magazzino
+from RIPIANO inner join SCAFFALE on scaffale = codice_scaffale
+where NEW.ripiano = codice_ripiano;
+
+select ripiano into c_ripiano
+from (COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale
+where COLLOCAMENTO.prodotto = NEW.prodotto and codice_magazzino = c_magazzino;
+
+if(c_ripiano is not null and NEW.ripiano != c_ripiano) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'prodotto gia\' collocato in un altro scaffale';
+end if;
+end;
 
 create trigger rimuovi_categoria
 before delete on CATEGORIA
