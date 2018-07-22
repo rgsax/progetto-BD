@@ -56,6 +56,8 @@ DELIMITER ;;
 before insert on ACQUISTI
 for each row
 begin
+declare q_magazzino int default(0);
+declare c_negozio int;
 
 if(NEW.prodotto not in (select prodotto
 						from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = REPARTO.codice_reparto), SCONTRINO
@@ -63,7 +65,12 @@ if(NEW.prodotto not in (select prodotto
 	signal sqlstate '45000' set MESSAGE_TEXT = 'prodotto non in vendita nel reparto';
 end if;
 
-if(NEW.quantita > (select quantita_esposta 
+select negozio into c_negozio from SCONTRINO where codice_scontrino = NEW.scontrino;
+
+select sum(quantita) into q_magazzino from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scafale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
+	where COLLOCAMENTO.prodotto = NEW.prodotto and negozio = c_negozio;
+
+if(NEW.quantita > q_magazzino + (select quantita_esposta 
 					from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = codice_reparto) inner join SCONTRINO on REPARTO.negozio = SCONTRINO.negozio
                     where codice_scontrino = NEW.scontrino and NEW.prodotto = IN_VENDITA.prodotto)) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'quantita\' richiesta non disponibile';
@@ -88,7 +95,7 @@ CREATE TABLE `CAMPAGNA_PROMOZIONALE` (
   `data_inizio` date NOT NULL,
   `data_fine` date NOT NULL,
   `negozio` int(11) NOT NULL,
-  PRIMARY KEY (`codice_campagna_promozionale`,`negozio`),
+  PRIMARY KEY (`codice_campagna_promozionale`),
   KEY `fk_CAMPAGNA PROMOZIONALE_NEGOZIO1_idx` (`negozio`),
   CONSTRAINT `fk_CAMPAGNA PROMOZIONALE_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;
@@ -415,7 +422,7 @@ CREATE TABLE `FIDELITY CARD` (
   `data_scadenza` date NOT NULL,
   `negozio` int(11) NOT NULL,
   `cliente` varchar(16) NOT NULL,
-  PRIMARY KEY (`codice_carta`,`negozio`,`cliente`),
+  PRIMARY KEY (`codice_carta`),
   KEY `fk_FIDELITY CARD_NEGOZIO1_idx` (`negozio`),
   KEY `fk_FIDELITY CARD_PERSONA_idx` (`cliente`),
   CONSTRAINT `fk_FIDELITY CARD_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION,
@@ -448,6 +455,10 @@ begin
 
 if(datediff(NEW.data_emissione, NEW.data_scadenza) > 0) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'data_emissione > data_scadenza';
+end if;
+
+if(exists(select * from `FIDELITY CARD` where cliente = NEW.cliente and negozio = NEW.negozio AND datediff(data_scadenza, curdate()) > 0)) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'esiste gia\' una fidelity card non scaduta';
 end if;
 end */;;
 DELIMITER ;
@@ -711,7 +722,7 @@ DROP TABLE IF EXISTS `MAGAZZINO`;
 CREATE TABLE `MAGAZZINO` (
   `codice_magazzino` int(11) NOT NULL AUTO_INCREMENT,
   `negozio` int(11) NOT NULL,
-  PRIMARY KEY (`codice_magazzino`,`negozio`),
+  PRIMARY KEY (`codice_magazzino`),
   KEY `fk_MAGAZZINO_NEGOZIO1_idx` (`negozio`),
   CONSTRAINT `fk_MAGAZZINO_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8;
@@ -896,7 +907,7 @@ CREATE TABLE `ORDINE` (
   `prodotto` int(11) NOT NULL,
   `quantita` double unsigned NOT NULL,
   `fornitore` int(11) NOT NULL,
-  PRIMARY KEY (`codice_ordine`,`negozio`,`prodotto`,`fornitore`),
+  PRIMARY KEY (`codice_ordine`),
   KEY `fk_ORDINE_NEGOZIO1_idx` (`negozio`),
   KEY `fk_ORDINE_PRODOTTO1_idx` (`prodotto`),
   KEY `fk_ORDINE_FORNITORE1_idx` (`fornitore`),
@@ -960,7 +971,7 @@ CREATE TABLE `PRODOTTO` (
   `taglia` int(10) unsigned DEFAULT NULL,
   `materiale` varchar(45) DEFAULT NULL,
   `subcategoria` int(11) NOT NULL,
-  PRIMARY KEY (`codice_a_barre`,`subcategoria`),
+  PRIMARY KEY (`codice_a_barre`),
   KEY `subcategoria_idx` (`subcategoria`),
   CONSTRAINT `fk_PRODOTTO_1` FOREIGN KEY (`subcategoria`) REFERENCES `SUBCATEGORIA` (`codice_subcategoria`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -1163,7 +1174,7 @@ DROP TABLE IF EXISTS `RIPIANO`;
 CREATE TABLE `RIPIANO` (
   `codice_ripiano` int(11) NOT NULL AUTO_INCREMENT,
   `scaffale` int(11) NOT NULL,
-  PRIMARY KEY (`codice_ripiano`,`scaffale`),
+  PRIMARY KEY (`codice_ripiano`),
   KEY `fk_RIPIANO_SCAFFALE1_idx` (`scaffale`),
   CONSTRAINT `fk_RIPIANO_SCAFFALE1` FOREIGN KEY (`scaffale`) REFERENCES `SCAFFALE` (`codice_scaffale`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8;
@@ -1212,7 +1223,7 @@ DROP TABLE IF EXISTS `SCAFFALE`;
 CREATE TABLE `SCAFFALE` (
   `codice_scaffale` int(11) NOT NULL AUTO_INCREMENT,
   `codice_magazzino` int(11) NOT NULL,
-  PRIMARY KEY (`codice_scaffale`,`codice_magazzino`),
+  PRIMARY KEY (`codice_scaffale`),
   KEY `magazzino` (`codice_magazzino`),
   CONSTRAINT `fk_SCAFFALE_MAGAZZINO1` FOREIGN KEY (`codice_magazzino`) REFERENCES `MAGAZZINO` (`codice_magazzino`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8;
@@ -1263,7 +1274,7 @@ CREATE TABLE `SCONTRINO` (
   `data_emissione` date NOT NULL,
   `negozio` int(11) NOT NULL,
   `fidelity_card` int(11) DEFAULT NULL,
-  PRIMARY KEY (`codice_scontrino`,`negozio`),
+  PRIMARY KEY (`codice_scontrino`),
   KEY `fk_SCONTRINO_NEGOZIO1_idx` (`negozio`),
   KEY `fk_SCONTRINO_FIDELITY CARD1_idx` (`fidelity_card`),
   CONSTRAINT `fk_SCONTRINO_NEGOZIO1` FOREIGN KEY (`negozio`) REFERENCES `NEGOZIO` (`P_IVA`) ON DELETE NO ACTION ON UPDATE NO ACTION
@@ -1314,7 +1325,7 @@ CREATE TABLE `SUBCATEGORIA` (
   `codice_subcategoria` int(11) NOT NULL AUTO_INCREMENT,
   `descrizione` varchar(45) DEFAULT NULL,
   `categoria_prodotto` int(11) NOT NULL,
-  PRIMARY KEY (`codice_subcategoria`,`categoria_prodotto`),
+  PRIMARY KEY (`codice_subcategoria`),
   KEY `fk_SUB-CATEGORIA_CATEGORIA1_idx` (`categoria_prodotto`),
   CONSTRAINT `fk_SUB-CATEGORIA_CATEGORIA1` FOREIGN KEY (`categoria_prodotto`) REFERENCES `CATEGORIA` (`codice_categoria`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8;
@@ -1471,6 +1482,131 @@ SET character_set_client = utf8;
 SET character_set_client = @saved_cs_client;
 
 --
+-- Dumping events for database 'centro_commerciale'
+--
+/*!50106 SET @save_time_zone= @@TIME_ZONE */ ;
+/*!50106 DROP EVENT IF EXISTS `disabilita_schede` */;
+DELIMITER ;;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;;
+/*!50003 SET character_set_client  = utf8 */ ;;
+/*!50003 SET character_set_results = utf8 */ ;;
+/*!50003 SET collation_connection  = utf8_general_ci */ ;;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;;
+/*!50003 SET @saved_time_zone      = @@time_zone */ ;;
+/*!50003 SET time_zone             = 'SYSTEM' */ ;;
+/*!50106 CREATE*/ /*!50117 DEFINER=`root`@`localhost`*/ /*!50106 EVENT `disabilita_schede` ON SCHEDULE EVERY 1 DAY STARTS '2018-07-07 16:41:32' ON COMPLETION NOT PRESERVE ENABLE DO begin
+delete from `FIDELITY CARD`
+where datediff(curdate(), data_emissione) >= 2 * 365 and not exists (
+	select *
+	from SCONTRINO
+	having fidelity_card = codice_carta and datediff(curdate(), SCONTRINO.data_emissione) < 2 * 365);
+end */ ;;
+/*!50003 SET time_zone             = @saved_time_zone */ ;;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;;
+/*!50003 SET character_set_results = @saved_cs_results */ ;;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;;
+DELIMITER ;
+/*!50106 SET TIME_ZONE= @save_time_zone */ ;
+
+--
+-- Dumping routines for database 'centro_commerciale'
+--
+/*!50003 DROP FUNCTION IF EXISTS `calcola_sconto` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8 */ ;
+/*!50003 SET character_set_results = utf8 */ ;
+/*!50003 SET collation_connection  = utf8_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`root`@`localhost` FUNCTION `calcola_sconto`(c_negozio int, c_prodotto int, c_data date) RETURNS double
+    DETERMINISTIC
+begin
+
+declare c_sconto double;
+declare prezzo double;
+
+select prezzo_base into prezzo from IN_VENDITA inner join REPARTO on reparto = codice_reparto where negozio = c_negozio and prodotto = c_prodotto;
+
+select PRODOTTI_SCONTATI.sconto into c_sconto
+from CAMPAGNA_PROMOZIONALE inner join PRODOTTI_SCONTATI on campagna_promozionale = codice_campagna_promozionale
+where negozio = c_negozio and prodotto = c_prodotto and c_data >= data_inizio and c_data <= data_fine;
+
+if(c_sconto is not null) then
+	return prezzo * c_sconto / 100;
+else
+	return 0.0;
+end if;
+end ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+/*!50003 DROP PROCEDURE IF EXISTS `check_assunzione` */;
+/*!50003 SET @saved_cs_client      = @@character_set_client */ ;
+/*!50003 SET @saved_cs_results     = @@character_set_results */ ;
+/*!50003 SET @saved_col_connection = @@collation_connection */ ;
+/*!50003 SET character_set_client  = utf8 */ ;
+/*!50003 SET character_set_results = utf8 */ ;
+/*!50003 SET collation_connection  = utf8_general_ci */ ;
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+/*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' */ ;
+DELIMITER ;;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `check_assunzione`(matricola int, data_inizio date, data_fine date)
+begin
+
+if((data_fine is not null) and datediff(data_inizio, data_fine) > 0) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'data_inizio > data_fine';
+end if;
+
+if(exists (
+		select LAVORA.dipendente 
+        from LAVORA 
+        where LAVORA.dipendente = matricola 
+			and (((data_inizio >= LAVORA.data_fine and LAVORA.data_fine is null) or (LAVORA.data_fine > data_inizio and data_fine is not null and LAVORA.data_inizio < data_fine)) 
+            or LAVORA.data_inizio = data_inizio)
+        )
+	)then
+    signal sqlstate '45000' set MESSAGE_TEXT = 'periodo di tempo compreso in un periodo di lavoro preesistente in LAVORA';
+end if;
+
+if(exists (
+		select RESPONSABILE.dipendente 
+		from RESPONSABILE 
+        where RESPONSABILE.dipendente = matricola 
+			and (((data_inizio >= RESPONSABILE.data_fine and RESPONSABILE.data_fine is null) or (RESPONSABILE.data_fine > data_inizio and data_fine is not null and RESPONSABILE.data_inizio < data_fine)) 
+            or RESPONSABILE.data_inizio = data_inizio)
+        )
+	) then
+    signal sqlstate '45000' set MESSAGE_TEXT = 'periodo di tempo compreso in un periodo di lavoro preesistente in RESPONSABILE';
+end if;
+
+if(exists (
+		select MANAGER.dipendente 
+		from MANAGER 
+        where MANAGER.dipendente = matricola 
+			and (((data_inizio >= MANAGER.data_fine and MANAGER.data_fine is null) or (MANAGER.data_fine > data_inizio and data_fine is not null and MANAGER.data_inizio < data_fine)) 
+            or MANAGER.data_inizio = data_inizio)
+		)
+	) then
+    signal sqlstate '45000' set MESSAGE_TEXT = 'periodo di tempo compreso in un periodo di lavoro preesistente in MANAGER';
+end if;
+
+end ;;
+DELIMITER ;
+/*!50003 SET sql_mode              = @saved_sql_mode */ ;
+/*!50003 SET character_set_client  = @saved_cs_client */ ;
+/*!50003 SET character_set_results = @saved_cs_results */ ;
+/*!50003 SET collation_connection  = @saved_col_connection */ ;
+
+--
 -- Final view structure for view `fid_totali`
 --
 
@@ -1533,4 +1669,4 @@ SET character_set_client = @saved_cs_client;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2018-07-13 23:49:40
+-- Dump completed on 2018-07-22 14:29:43

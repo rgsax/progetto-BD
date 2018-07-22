@@ -3,6 +3,13 @@ create trigger insert_check_acquisti
 before insert on ACQUISTI
 for each row
 begin
+declare q_magazzino int default(0);
+declare c_negozio int;
+declare c_reparto int;
+declare c_ripiano int;
+declare q_esposta int default(0);
+declare quantita_rimanente int;
+set quantita_rimanente = NEW.quantita;
 
 if(NEW.prodotto not in (select prodotto
 						from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = REPARTO.codice_reparto), SCONTRINO
@@ -10,11 +17,39 @@ if(NEW.prodotto not in (select prodotto
 	signal sqlstate '45000' set MESSAGE_TEXT = 'prodotto non in vendita nel reparto';
 end if;
 
-if(NEW.quantita > (select quantita_esposta 
+select negozio into c_negozio from SCONTRINO where codice_scontrino = NEW.scontrino;
+select codice_reparto into c_reparto from SCONTRINO inner join REPARTO on SCONTRINO.negozio = REPARTO.negozio where codice_scontrino = NEW.scontrino;
+select codice_ripiano into c_ripiano from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
+	where COLLOCAMENTO.prodotto = NEW.prodotto and negozio = c_negozio;
+	
+
+select sum(quantita) into q_magazzino from ((COLLOCAMENTO inner join RIPIANO on ripiano = codice_ripiano) inner join SCAFFALE on scaffale = codice_scaffale) inner join MAGAZZINO on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino
+	where COLLOCAMENTO.prodotto = NEW.prodotto and negozio = c_negozio;
+
+select quantita_esposta into q_esposta
 					from (IN_VENDITA inner join REPARTO on IN_VENDITA.reparto = codice_reparto) inner join SCONTRINO on REPARTO.negozio = SCONTRINO.negozio
-                    where codice_scontrino = NEW.scontrino and NEW.prodotto = IN_VENDITA.prodotto)) then
+                    where codice_scontrino = NEW.scontrino and NEW.prodotto = IN_VENDITA.prodotto;
+
+if(NEW.quantita > q_magazzino + q_esposta) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'quantita\' richiesta non disponibile';
 end if;
+
+if(quantita_rimanente > q_esposta) then
+	set quantita_rimanente = quantita_rimanente - q_esposta;
+    set q_esposta = 0;
+    set q_magazzino = q_magazzino - quantita_rimanente;
+else
+	set q_esposta = q_esposta - quantita_rimanente;
+end if;
+
+update IN_VENDITA
+set quantita_esposta = q_esposta
+where prodotto = NEW.prodotto and reparto = c_reparto;
+
+update COLLOCAMENTO
+set quantita = q_magazzino
+where prodotto = NEW.prodotto and ripiano = c_ripiano;
+
 end;
 
 create trigger insert_check_campagna_promozionale
@@ -74,10 +109,9 @@ create trigger sotto_soglia
 before update on COLLOCAMENTO
 for each row
 begin
-declare N double;
+declare N int;
 declare F int;
-if(NEW.quantita < NEW.soglia)
-then
+if(NEW.quantita < NEW.soglia) then
 select negozio into N from IN_VENDITA inner join REPARTO on reparto = codice_reparto  where prodotto = NEW.prodotto;
 
 select FORNITORE.P_IVA into F 
@@ -85,8 +119,10 @@ from (FORNITURA inner join FORNITORE on FORNITURA.fornitore = FORNITORE.P_IVA),
 	(MAGAZZINO inner join SCAFFALE on SCAFFALE.codice_magazzino = MAGAZZINO.codice_magazzino) inner join RIPIANO on scaffale = codice_scaffale
 where FORNITURA.negozio = MAGAZZINO.negozio and codice_ripiano = NEW.ripiano;
 
-insert into ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
-values(N, curdate(), NEW.prodotto, NEW.soglia, F);
+if(not exists(select * from ORDINE where negozio = N and ORDINE.prodotto = NEW.prodotto and datediff(data_ordine, curdate()) < 7)) then
+	insert into ORDINE(negozio, data_ordine, prodotto, quantita, fornitore)
+	values(N, curdate(), NEW.prodotto, NEW.soglia, F);
+end if;
 
 end if;
 end;
@@ -114,6 +150,10 @@ begin
 
 if(datediff(NEW.data_emissione, NEW.data_scadenza) > 0) then
 	signal sqlstate '45000' set MESSAGE_TEXT = 'data_emissione > data_scadenza';
+end if;
+
+if(exists(select * from `FIDELITY CARD` where cliente = NEW.cliente and negozio = NEW.negozio AND datediff(data_scadenza, curdate()) > 0)) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'esiste gia\' una fidelity card non scaduta';
 end if;
 end;
 
@@ -309,6 +349,17 @@ delete from TABELLA_VALORI_NUTRIZIONALI
 where valore = OLD.codice_valore;
 
 end;
+
+create trigger insert_check_fornitura
+before insert on FORNITURA
+for each row
+begin
+
+if(exists(select * from FORNITURA where negozio = NEW.negozio and categoria_prodotto = NEW.categoria_prodotto)) then
+	signal sqlstate '45000' set MESSAGE_TEXT = 'il negozio possiede gia\' questo tipo di fornitura';
+end if;
+end;
+
 |
 
 delimiter ;
